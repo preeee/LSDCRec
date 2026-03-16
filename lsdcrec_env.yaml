@@ -1,4 +1,4 @@
-name: bsarec
+name: lsdcrec
 channels:
   - pytorch
   - nvidia
