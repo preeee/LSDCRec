@@ -11,21 +11,21 @@ class SequentialRecModel(nn.Module):
     def __init__(self, args):
         super(SequentialRecModel, self).__init__()
         self.args = args
-        self.item_embeddings = nn.Embedding(args.item_size, args.hidden_size, padding_idx=0)    # 第一个嵌入层，学习item的嵌入向量，item_size=max_item + 1
-        self.position_embeddings = nn.Embedding(args.max_seq_length, args.hidden_size)          # 第二个嵌入层，学习位置的嵌入向量
+        self.item_embeddings = nn.Embedding(args.item_size, args.hidden_size, padding_idx=0)    
+        self.position_embeddings = nn.Embedding(args.max_seq_length, args.hidden_size)         
         self.batch_size = args.batch_size
 
-    # 对输入序列添加位置编码
+   
     # 输入：sequence，形状是[batch, seq_len]
     def add_position_embedding(self, sequence):
         seq_length = sequence.size(1)       # 获取序列的长度
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=sequence.device)   # 生成一个与序列长度相同的位置标识张量，表示每个位置的位置标识，形状是[seq_len]
-        position_ids = position_ids.unsqueeze(0).expand_as(sequence)                        # position_ids的形状变化：[seq_len] => [1, seq_len] => [batch, seq_len]
-        item_embeddings = self.item_embeddings(sequence)                             # 获取item的嵌入向量
-        position_embeddings = self.position_embeddings(position_ids)                 # 获取位置的嵌入向量
-        sequence_emb = item_embeddings + position_embeddings                         # 向量相加
-        sequence_emb = self.LayerNorm(sequence_emb)              # 虽然在父类的初始化方法中没有定义LayerNorm，但是在子类WTRecModel中定义了LayerNorm
-        sequence_emb = self.dropout(sequence_emb)   # 应用LayerNorm和dropout层对嵌入进行进一步的规范化和防止过拟合
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=sequence.device)   
+        position_ids = position_ids.unsqueeze(0).expand_as(sequence)                        
+        item_embeddings = self.item_embeddings(sequence)                             
+        position_embeddings = self.position_embeddings(position_ids)                 
+        sequence_emb = item_embeddings + position_embeddings                         
+        sequence_emb = self.LayerNorm(sequence_emb)              
+        sequence_emb = self.dropout(sequence_emb)   
 
         return sequence_emb
 
@@ -45,7 +45,6 @@ class SequentialRecModel(nn.Module):
             module.bias.data.zero_()
 
 
-    # not used 双向掩码
     def get_bi_attention_mask(self, item_seq):
         """Generate bidirectional attention mask for multi-head attention."""
 
@@ -58,8 +57,7 @@ class SequentialRecModel(nn.Module):
 
         return extended_attention_mask
 
-    # 生成左对角的attention mask，即只能看到左边的item，和输入的形状不同（单向掩码）
-    # 一般情况下，生成的掩码的形状和输入的形状是一样的（双向掩码）
+   
     def get_attention_mask(self, item_seq):
         """Generate left-to-right uni-directional attention mask for multi-head attention."""
 
@@ -79,13 +77,13 @@ class SequentialRecModel(nn.Module):
         return extended_attention_mask
 
     def forward(self, input_ids, all_sequence_output=False):
-        pass            # 由子类 BSARecModel 实现
+        pass            # 由子类  实现
 
     def predict(self, input_ids, user_ids, all_sequence_output=False):
-        return self.forward(input_ids, user_ids, all_sequence_output)       # 由子类 BSARecModel 实现的forward方法
+        return self.forward(input_ids, user_ids, all_sequence_output)       # 由子类实现的forward方法
 
     def calculate_loss(self, input_ids, answers):
-        pass            # 由子类 BSARecModel 实现
+        pass            # 由子类  实现
 
 
 
@@ -141,7 +139,6 @@ class FilterMixerLayer(nn.Module):
 
         return origianl_out
 
-### 2024-11-9 新增一个短期兴趣编码器 👇
 class ShortTermInterestsEncoder(nn.Module):
     def __init__(self, args):
         super(ShortTermInterestsEncoder, self).__init__()
@@ -161,7 +158,7 @@ class ShortTermInterestsEncoder(nn.Module):
         rnn_output, _ = self.rnn(input_tensor)
 
 
-        # 2025.3.2 使用独立的查询向量
+        # 使用独立的查询向量
         query = self.query_proj(input_tensor)  # 查询向量
         key = rnn_output  # 键
         value = rnn_output  # 值
@@ -174,7 +171,7 @@ class ShortTermInterestsEncoder(nn.Module):
         return hidden_states
 
 
-###### 2025.2.14 SLIME4Rec模块
+
 class FMBlock(nn.Module):
     def __init__(self, i, args):
         super(FMBlock, self).__init__()
@@ -182,28 +179,27 @@ class FMBlock(nn.Module):
         self.feed_forward = FeedForward(args)
 
     def forward(self, hidden_states, attention_mask=None):
-        filter_mixer_layer_output = self.filter_mixer_layer(hidden_states)  # 不用掩码
+        filter_mixer_layer_output = self.filter_mixer_layer(hidden_states) 
         feedforward_output = self.feed_forward(filter_mixer_layer_output)
 
         return feedforward_output
 
-### 长期兴趣编码器 FMRecEncoder
+
 class FMRecEncoder(nn.Module):
     def __init__(self, args):
         super(FMRecEncoder, self).__init__()
         self.args = args
-        # FMRecEncoder每一层可能会有不同的超参数配置，因为每个FMBlock(i, args)可能依赖于层的索引i
         self.blocks = nn.ModuleList([copy.deepcopy(FMBlock(i,args)) for i in range(args.num_hidden_layers)])
 
     def forward(self, hidden_states, attention_mask, output_all_encoded_layers=False):
         all_encoder_layers = [hidden_states]
         for layer_module in self.blocks:
-            hidden_states = layer_module(hidden_states)  # 不用掩码
+            hidden_states = layer_module(hidden_states)  
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
 
         if not output_all_encoded_layers:
-            return all_encoder_layers[-1]  # 返回最后一层的输出
+            return all_encoder_layers[-1]  
 
         return all_encoder_layers
 
@@ -228,7 +224,7 @@ class DuoRecModel(SequentialRecModel):
         self.aug_nce_fct = nn.CrossEntropyLoss()
         self.mask_default = self.mask_correlated_samples(batch_size=self.batch_size)
         self.tau = args.tau     # 温度参数
-        self.sim = args.sim    # 相似度计算方式，dot或cos
+        self.sim = args.sim    # 相似度计算方式
         self.lmd_sem = args.lmd_sem     #无监督损失权重
         # self.lmd = args.lmd     #有监督损失权重
 
@@ -251,48 +247,27 @@ class DuoRecModel(SequentialRecModel):
         We do not sample negative examples explicitly.
         Instead, given a positive pair, similar to (Chen et al., 2017), we treat the other 2(N − 1) augmented examples within a minibatch as negative examples.
 
-        计算InfoNCE损失所需的对数概率和标签(不显式采样负样本)
-
-        参数:
-            z_i (torch.Tensor): 第一个增强视图的特征张量，形状为 (batch_size, seq_len, feature_dim)
-            z_j (torch.Tensor): 第二个增强视图的特征张量，形状为 (batch_size, seq_len, feature_dim)
-            temp (float): 温度系数，用于缩放相似度得分
-            batch_size (int): 原始批尺寸大小(每个增强视图的样本数)
-            sim (str): 相似度计算方式，'cos'表示余弦相似度，'dot'表示点积相似度
-
-        返回:
-            logits (torch.Tensor): 包含正负样本相似度的矩阵，形状为 (2*batch_size, 1+2*(batch_size-1))
-            labels (torch.Tensor): 全零标签向量，形状为 (2*batch_size,)
         """
 
         N = 2 * batch_size
 
-        # 特征拼接与维度处理：将两个视图的特征拼接并取最后一个时间步的特征
-        # 输出形状：z.shape = (2*batch_size, feature_dim)
         z = torch.cat((z_i, z_j), dim=0)
         z = z[:, -1, :]      # 仅保留序列最后一个位置的向量表示
 
-        # 全量相似度矩阵计算：计算所有样本间的相似度(包含正样本对和负样本对)
-        # 相似度矩阵形状：sim.shape = (2*batch_size, 2*batch_size)
         if sim == 'cos':
             sim = nn.functional.cosine_similarity(z.unsqueeze(1), z.unsqueeze(0), dim=2) / temp
         elif sim == 'dot':
             sim = torch.mm(z, z.T) / temp
 
-        # 正样本相似度提取：从对角线偏移位置获取正样本对(i,j)和(j,i)的相似度
-        # 结果形状：positive_samples.shape = (2*batch_size, 1)
         sim_i_j = torch.diag(sim, batch_size)    # 获取上对角线元素(i,j)
         sim_j_i = torch.diag(sim, -batch_size)   # 获取下对角线元素(j,i)
         positive_samples = torch.cat((sim_i_j, sim_j_i), dim=0).reshape(N, 1)
 
-        # 负样本掩码处理：生成仅包含负样本位置的掩码矩阵
-        # 当batch_size变化时动态生成掩码，否则使用预存掩码
         if batch_size != self.batch_size:
             mask = self.mask_correlated_samples(batch_size)
         else:
             mask = self.mask_default
-        # 负样本相似度提取：通过掩码矩阵获取所有负样本相似度
-        # 结果形状：negative_samples.shape = (2*batch_size, 2*(batch_size-1))
+       
         negative_samples = sim[mask].reshape(N, -1)
 
         # 构造分类任务输出：正样本作为第0类，负样本作为后续类别
@@ -312,27 +287,14 @@ class DuoRecModel(SequentialRecModel):
         else:
             sequence_output = item_encoded_layers[-1]
 
-        # 获取短期兴趣表示
         short_term_output = self.short_term_encoder(sequence_emb, extended_attention_mask)
-        # 加权求和 LS-term
+    
         sequence_output = self.weight_long_term * sequence_output + self.weight_short_term * short_term_output
 
         return sequence_output
 
     def calculate_loss(self, input_ids, answers, neg_answers, same_target, user_ids):
-        """计算模型的总损失，包含交叉熵损失和多种对比学习损失
-
-        Args:
-            input_ids (Tensor): 输入序列的token id张量，形状为[batch_size, seq_len]
-            answers (Tensor): 正样本答案id张量，形状为[batch_size]
-            neg_answers (Tensor): 负样本答案id张量（当前代码中未使用，可能为后续扩展预留）
-            same_target (Tensor): 语义增强后的等效序列张量，形状同input_ids
-            user_ids (Tensor): 用户id张量（当前代码中未使用，可能为用户特征预留）
-
-        Returns:
-            Tensor: 包含交叉熵损失和对比学习损失的总损失标量值
-        """
-
+        
         seq_output = self.forward(input_ids)
         seq_output = seq_output[:, -1, :]
 
@@ -340,10 +302,6 @@ class DuoRecModel(SequentialRecModel):
         test_item_emb = self.item_embeddings.weight
         logits = torch.matmul(seq_output, test_item_emb.transpose(0, 1))
         loss = nn.CrossEntropyLoss()(logits, answers)
-
-        
-        # Unsupervised + Supervised NCE: dropout vs semantic augmentation
-        # 混合增强对比分支（dropout增强 vs 语义增强）
         
         # unsupervised
         aug_seq_output = self.forward(input_ids)    # dropout增强表征
