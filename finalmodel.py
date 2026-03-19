@@ -2,7 +2,6 @@
 
 import torch
 import torch.nn as nn
-from model._abstract_model import SequentialRecModel
 from model._modules import LayerNorm, FeedForward, MultiHeadedAttention,LayerNorm
 from torch.nn.init import xavier_uniform_
 import copy
